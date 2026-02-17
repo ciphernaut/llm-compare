@@ -37,7 +37,8 @@ class LLMComparator:
                 "parameters": params or {},
                 "result": None,
                 "error": None,
-                "timing": {}
+                "timing": {},
+                "usage": {}
             }
 
             try:
@@ -51,8 +52,8 @@ class LLMComparator:
                         break
                     
                     # Store usage if present (usually in the last chunk with stream_options)
-                    if "usage" in chunk:
-                        model_entry["timing"]["usage"] = chunk["usage"]
+                    if "usage" in chunk and chunk["usage"]:
+                        model_entry["usage"] = chunk["usage"]
 
                     choices = chunk.get("choices", [])
                     if not choices:

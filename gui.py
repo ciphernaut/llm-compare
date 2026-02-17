@@ -199,7 +199,7 @@ class LLMComparatorApp(Adw.Application):
         else:
             row.update(res["result"]["content"], res["result"]["thinking"])
             t = res.get("timing", {})
-            usage = t.get("usage", {})
+            usage = res.get("usage", {})
             subtitle = f"Completed | Load: {t.get('load_time', 0):.2f}s | Think: {t.get('think_time', 0):.2f}s | Content: {t.get('content_time', 0):.2f}s"
             if usage:
                 subtitle += f" | Tokens: P:{usage.get('prompt_tokens', 0)} C:{usage.get('completion_tokens', 0)} T:{usage.get('total_tokens', 0)}"
