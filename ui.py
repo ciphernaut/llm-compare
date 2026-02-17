@@ -127,6 +127,8 @@ class LLMStudioTUI(App):
                 log.write(f"[red]Error with {m_id}: {res['error']['detail']}[/]")
             else:
                 log.write(f"[green]SUCCESS: {m_id}[/]")
+                t = res.get("timing", {})
+                log.write(f"[dim]Load: {t.get('load_time', 0):.2f}s | Think: {t.get('think_time', 0):.2f}s | Content: {t.get('content_time', 0):.2f}s[/]")
                 if res["result"]["thinking"]:
                     log.write(f"[italic blue]Thinking:[/]")
                     log.write(res["result"]["thinking"][:300] + "...")

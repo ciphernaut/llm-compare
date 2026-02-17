@@ -198,7 +198,8 @@ class LLMComparatorApp(Adw.Application):
             row.set_subtitle("Failed")
         else:
             row.update(res["result"]["content"], res["result"]["thinking"])
-            row.set_subtitle("Completed")
+            t = res.get("timing", {})
+            row.set_subtitle(f"Completed | Load: {t.get('load_time', 0):.2f}s | Think: {t.get('think_time', 0):.2f}s | Content: {t.get('content_time', 0):.2f}s")
 
 if __name__ == '__main__':
     app = LLMComparatorApp()

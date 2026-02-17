@@ -43,3 +43,35 @@ class LMStudioClient:
                 return {"error": f"HTTP error: {e.response.status_code}", "detail": e.response.text}
             except Exception as e:
                 return {"error": "Connection error", "detail": str(e)}
+    async def generate_stream(self, model_id: str, prompt: str, system_prompt: Optional[str] = None, params: Dict[str, Any] = None):
+        """Generate a streaming completion for the given model and prompt."""
+        params = params or {}
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        payload = {
+            "model": model_id,
+            "messages": messages,
+            "temperature": params.get("temperature", 0.7),
+            "max_tokens": params.get("max_tokens", 1024),
+            "stream": True
+        }
+
+        import json
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            try:
+                async with client.stream("POST", f"{self.base_url}/chat/completions", json=payload) as response:
+                    response.raise_for_status()
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            data_str = line[6:]
+                            if data_str.strip() == "[DONE]":
+                                break
+                            try:
+                                yield json.loads(data_str)
+                            except json.JSONDecodeError:
+                                continue
+            except Exception as e:
+                yield {"error": "Stream error", "detail": str(e)}

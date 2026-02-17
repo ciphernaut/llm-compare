@@ -16,45 +16,89 @@ class LLMComparator:
                              system_prompt: Optional[str] = None, 
                              params: Dict[str, Any] = None):
         import re
+        import time
         all_results = []
         for model_id in selected_model_ids:
-            # Record state before run
             state_before = self.model_manager.get_state(model_id)
             
-            response = await self.client.generate(model_id, prompt, system_prompt, params)
+            start_time = time.time()
+            first_chunk_time = None
+            think_start_time = None
+            think_end_time = None
+            content_start_time = None
+            
+            full_content = ""
+            thinking = ""
+            in_thinking = False
             
             model_entry = {
                 "model_id": model_id,
                 "state_before_run": state_before,
                 "parameters": params or {},
                 "result": None,
-                "error": None
+                "error": None,
+                "timing": {}
             }
-            
-            if "error" in response:
-                model_entry["error"] = response
-                self.model_manager.mark_failure(model_id)
-            else:
-                content = response["choices"][0]["message"]["content"]
-                
-                # Extract thinking blocks (DeepSeek style)
-                thinking = ""
-                think_match = re.search(r'<think>(.*?)</think>', content, re.DOTALL)
-                if think_match:
-                    thinking = think_match.group(1).strip()
-                    content = re.sub(r'<think>.*?</think>', '', content, flags=re.DOTALL).strip()
 
-                model_entry["result"] = {
-                    "content": content,
-                    "thinking": thinking,
-                    "usage": response.get("usage", {}),
-                    "model_name": response.get("model", model_id)
-                }
-            
+            try:
+                async for chunk in self.client.generate_stream(model_id, prompt, system_prompt, params):
+                    if not first_chunk_time:
+                        first_chunk_time = time.time()
+                    
+                    if "error" in chunk:
+                        model_entry["error"] = chunk
+                        self.model_manager.mark_failure(model_id)
+                        break
+                    
+                    delta = chunk["choices"][0].get("delta", {})
+                    content_chunk = delta.get("content", "")
+                    
+                    if content_chunk:
+                        full_content += content_chunk
+                        
+                        # Timing and logic for thinking vs content
+                        if "<think>" in content_chunk:
+                            in_thinking = True
+                            think_start_time = time.time()
+                        
+                        if "</think>" in content_chunk:
+                            in_thinking = False
+                            think_end_time = time.time()
+                            content_start_time = time.time()
+                        
+                        if not in_thinking and not content_start_time and content_chunk.strip():
+                            content_start_time = time.time()
+
+                end_time = time.time()
+                
+                if not model_entry["error"]:
+                    # Post-process thinking and content
+                    think_match = re.search(r'<think>(.*?)</think>', full_content, re.DOTALL)
+                    if think_match:
+                        thinking = think_match.group(1).strip()
+                        content = re.sub(r'<think>.*?</think>', '', full_content, flags=re.DOTALL).strip()
+                    else:
+                        content = full_content.strip()
+
+                    model_entry["timing"] = {
+                        "load_time": (first_chunk_time - start_time) if first_chunk_time else 0,
+                        "think_time": (think_end_time - think_start_time) if (think_end_time and think_start_time) else 0,
+                        "content_time": (end_time - (content_start_time or first_chunk_time)) if first_chunk_time else 0,
+                        "total_time": end_time - start_time
+                    }
+
+                    model_entry["result"] = {
+                        "content": content,
+                        "thinking": thinking,
+                        "model_name": model_id
+                    }
+            except Exception as e:
+                model_entry["error"] = {"error": "Processing error", "detail": str(e)}
+                self.model_manager.mark_failure(model_id)
+
             all_results.append(model_entry)
-            yield model_entry # Yield individual results for real-time UI updates
+            yield model_entry
             
-        # Final save of all results
         self.storage.save_comparison(prompt, all_results, system_prompt, params)
 
     async def get_available_models(self) -> List[Dict[str, Any]]:
