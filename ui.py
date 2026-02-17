@@ -128,7 +128,10 @@ class LLMStudioTUI(App):
             else:
                 log.write(f"[green]SUCCESS: {m_id}[/]")
                 t = res.get("timing", {})
+                usage = t.get("usage", {})
                 log.write(f"[dim]Load: {t.get('load_time', 0):.2f}s | Think: {t.get('think_time', 0):.2f}s | Content: {t.get('content_time', 0):.2f}s[/]")
+                if usage:
+                    log.write(f"[dim]Tokens: P:{usage.get('prompt_tokens', 0)} C:{usage.get('completion_tokens', 0)} T:{usage.get('total_tokens', 0)}[/]")
                 if res["result"]["thinking"]:
                     log.write(f"[italic blue]Thinking:[/]")
                     log.write(res["result"]["thinking"][:300] + "...")

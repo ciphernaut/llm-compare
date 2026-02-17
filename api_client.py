@@ -56,7 +56,8 @@ class LMStudioClient:
             "messages": messages,
             "temperature": params.get("temperature", 0.7),
             "max_tokens": params.get("max_tokens", 1024),
-            "stream": True
+            "stream": True,
+            "stream_options": {"include_usage": True}
         }
 
         import json

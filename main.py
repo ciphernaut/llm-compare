@@ -50,7 +50,15 @@ class LLMComparator:
                         self.model_manager.mark_failure(model_id)
                         break
                     
-                    delta = chunk["choices"][0].get("delta", {})
+                    # Store usage if present (usually in the last chunk with stream_options)
+                    if "usage" in chunk:
+                        model_entry["timing"]["usage"] = chunk["usage"]
+
+                    choices = chunk.get("choices", [])
+                    if not choices:
+                        continue
+                        
+                    delta = choices[0].get("delta", {})
                     content_chunk = delta.get("content", "")
                     
                     if content_chunk:
