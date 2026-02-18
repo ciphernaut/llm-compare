@@ -75,10 +75,16 @@ class LLMStudioTUI(App):
     }
     """
 
+    BINDINGS = [
+        ("escape", "cancel_run", "Cancel"),
+        ("ctrl+r", "refresh_models", "Refresh"),
+    ]
+
     def __init__(self):
         super().__init__()
         self.comparator = LLMComparator()
         self.models = []
+        self.running_comparison = False
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -118,29 +124,50 @@ class LLMStudioTUI(App):
 
     @work(exclusive=True)
     async def run_comparison_task(self, prompt: str, system_prompt: str, selected_ids: list):
+        self.running_comparison = True
         log = self.query_one("#log", RichLog)
+        log.write("-" * 40)
+        log.write(f"[bold blue]SYSTEM:[/]\n{system_prompt}")
+        log.write(f"[bold blue]USER:[/]\n{prompt}")
+        log.write("-" * 40)
         log.write(f"[bold cyan]Starting comparison for {len(selected_ids)} models...[/]")
         
-        async for res in self.comparator.run_comparison(prompt, selected_ids, system_prompt):
-            m_id = res["model_id"]
-            if res["error"]:
-                log.write(f"[red]Error with {m_id}: {res['error']['detail']}[/]")
-            else:
-                log.write(f"[green]SUCCESS: {m_id}[/]")
-                t = res.get("timing", {})
-                usage = res.get("usage", {})
-                log.write(f"[dim]Load: {t.get('load_time', 0):.2f}s | Think: {t.get('think_time', 0):.2f}s | Content: {t.get('content_time', 0):.2f}s[/]")
-                if usage:
-                    log.write(f"[dim]Tokens: P:{usage.get('prompt_tokens', 0)} C:{usage.get('completion_tokens', 0)} T:{usage.get('total_tokens', 0)}[/]")
-                if res["result"]["thinking"]:
-                    log.write(f"[italic blue]Thinking:[/]")
-                    log.write(res["result"]["thinking"][:300] + "...")
-                log.write(f"--- Response Preview ---")
-                log.write(res["result"]["content"][:300] + "...")
-                log.write("-" * 20)
-        
-        log.write("[bold green]All finished. Results saved to /results folder.[/]")
-        await self.refresh_models()
+        try:
+            async for res in self.comparator.run_comparison(prompt, selected_ids, system_prompt):
+                if self.comparator.cancellation_event.is_set():
+                    log.write("[bold yellow]Comparison cancelled by user.[/]")
+                    break
+                
+                m_id = res["model_id"]
+                if res["error"]:
+                    log.write(f"[red]Error with {m_id}: {res['error']['detail']}[/]")
+                else:
+                    log.write(f"[green]SUCCESS: {m_id}[/]")
+                    t = res.get("timing", {})
+                    usage = res.get("usage", {})
+                    log.write(f"[dim]Load: {t.get('load_time', 0):.2f}s | Think: {t.get('think_time', 0):.2f}s | Content: {t.get('content_time', 0):.2f}s[/]")
+                    if usage:
+                        log.write(f"[dim]Tokens: P:{usage.get('prompt_tokens', 0)} C:{usage.get('completion_tokens', 0)} T:{usage.get('total_tokens', 0)}[/]")
+                    if res["result"]["thinking"]:
+                        log.write(f"[italic blue]Thinking:[/]")
+                        log.write(res["result"]["thinking"][:300] + "...")
+                    log.write(f"--- Response Preview ---")
+                    log.write(res["result"]["content"][:300] + "...")
+                    log.write("-" * 20)
+            
+            if not self.comparator.cancellation_event.is_set():
+                log.write("[bold green]All finished. Results saved to /results folder.[/]")
+        except Exception as e:
+            log.write(f"[bold red]Unexpected error: {e}[/]")
+        finally:
+            self.running_comparison = False
+            await self.refresh_models()
+
+    def action_cancel_run(self):
+        if self.running_comparison:
+            self.comparator.cancel()
+            self.query_one("#log", RichLog).write("[bold yellow]Cancellation requested...[/]")
+            self.running_comparison = False
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "refresh-btn":

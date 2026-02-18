@@ -67,6 +67,21 @@ class LLMComparatorApp(Adw.Application):
 
         header = Adw.HeaderBar()
         main_box.append(header)
+        
+        self.cancel_btn = Gtk.Button(label="Cancel")
+        self.cancel_btn.add_css_class("destructive-action")
+        self.cancel_btn.set_visible(False)
+        self.cancel_btn.connect("clicked", self.on_cancel_clicked)
+        header.pack_start(self.cancel_btn)
+
+        # Keyboard Shortcut for Esc (Cancel)
+        controller = Gtk.ShortcutController()
+        shortcut = Gtk.Shortcut.new(
+            trigger=Gtk.ShortcutTrigger.parse_string("Escape"),
+            action=Gtk.CallbackAction.new(lambda *args: (self.on_cancel_clicked(None), True)[1])
+        )
+        controller.add_shortcut(shortcut)
+        self.window.add_controller(controller)
 
         # Setup Page
         self.stack = Gtk.Stack()
@@ -123,6 +138,18 @@ class LLMComparatorApp(Adw.Application):
         self.status_banner = Adw.Banner(title="Processing Comparisons...", visible=False)
         results_page.append(self.status_banner)
 
+        # Prompts Header
+        self.prompt_group = Adw.PreferencesGroup(title="Active Prompts")
+        results_page.append(self.prompt_group)
+        
+        self.system_prompt_display = Adw.ActionRow(title="System", subtitle_lines=0)
+        self.system_prompt_display.add_css_class("dim-label")
+        self.prompt_group.add(self.system_prompt_display)
+        
+        self.user_prompt_display = Adw.ActionRow(title="User", subtitle_lines=0)
+        self.user_prompt_display.add_css_class("dim-label")
+        self.prompt_group.add(self.user_prompt_display)
+
         # Scrolled Window for Results
         res_scroll = Gtk.ScrolledWindow()
         res_scroll.set_vexpand(True)
@@ -175,18 +202,39 @@ class LLMComparatorApp(Adw.Application):
             self.results_group.add(row)
             self.result_rows[m_id] = row
 
+        self.system_prompt_display.set_subtitle(system_prompt)
+        self.user_prompt_display.set_subtitle(prompt)
+
         self.status_banner.set_visible(True)
+        self.cancel_btn.set_visible(True)
         self.stack.set_visible_child_name("results")
         
+        self.run_btn = btn
+        self.run_btn.set_sensitive(False)
+
         asyncio.run_coroutine_threadsafe(
             self.run_comparison(prompt, system_prompt, selected_ids), 
             self.loop
         )
 
+    def on_cancel_clicked(self, sender):
+        self.comparator.cancel()
+        self.status_banner.set_title("Cancelling...")
+        self.cancel_btn.set_sensitive(False)
+
     async def run_comparison(self, prompt, system_prompt, selected_ids):
         async for res in self.comparator.run_comparison(prompt, selected_ids, system_prompt):
             GLib.idle_add(self.update_result, res)
-        GLib.idle_add(lambda: self.status_banner.set_visible(False))
+        
+        GLib.idle_add(self.finish_run)
+
+    def finish_run(self):
+        self.status_banner.set_visible(False)
+        self.status_banner.set_title("Processing Comparisons...")
+        self.cancel_btn.set_visible(False)
+        self.cancel_btn.set_sensitive(True)
+        if hasattr(self, 'run_btn'):
+            self.run_btn.set_sensitive(True)
 
     def update_result(self, res):
         m_id = res["model_id"]

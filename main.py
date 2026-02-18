@@ -9,6 +9,7 @@ class LLMComparator:
         self.client = LMStudioClient(base_url)
         self.model_manager = ModelManager()
         self.storage = ComparisonStorage()
+        self.cancellation_event = asyncio.Event()
 
     async def run_comparison(self, 
                              prompt: str, 
@@ -17,8 +18,11 @@ class LLMComparator:
                              params: Dict[str, Any] = None):
         import re
         import time
+        self.cancellation_event.clear()
         all_results = []
         for model_id in selected_model_ids:
+            if self.cancellation_event.is_set():
+                break
             state_before = self.model_manager.get_state(model_id)
             
             start_time = time.time()
@@ -43,6 +47,9 @@ class LLMComparator:
 
             try:
                 async for chunk in self.client.generate_stream(model_id, prompt, system_prompt, params):
+                    if self.cancellation_event.is_set():
+                        break
+
                     if not first_chunk_time:
                         first_chunk_time = time.time()
                     
@@ -112,3 +119,7 @@ class LLMComparator:
 
     async def get_available_models(self) -> List[Dict[str, Any]]:
         return await self.client.list_models()
+
+    def cancel(self):
+        """Signal cancellation of the current run."""
+        self.cancellation_event.set()
